@@ -52,7 +52,11 @@ from logging import getLogger
 try:
     from comet_ml import Experiment as CometExperiment
     from comet_ml import OfflineExperiment as CometOfflineExperiment
-    from comet_ml.papi import API
+    try:
+        from comet_ml.api import API
+    except ImportError:
+        # For more information, see: https://www.comet.ml/docs/python-sdk/releases/#release-300
+        from comet_ml.papi import API
 except ImportError:
     raise ImportError('Missing comet_ml package.')
 
@@ -67,8 +71,8 @@ logger = getLogger(__name__)
 class CometLogger(LightningLoggerBase):
     def __init__(self, api_key=None, save_dir=None, workspace=None,
                  rest_api_key=None, project_name=None, experiment_name=None, **kwargs):
-        """
-        Initialize a Comet.ml logger. Requires either an API Key (online mode) or a local directory path (offline mode)
+        """Initialize a Comet.ml logger.
+        Requires either an API Key (online mode) or a local directory path (offline mode)
 
         :param str api_key: Required in online mode. API key, found on Comet.ml
         :param str save_dir: Required in offline mode. The path for the directory to save local comet logs
@@ -145,13 +149,13 @@ class CometLogger(LightningLoggerBase):
         self.experiment.log_parameters(vars(params))
 
     @rank_zero_only
-    def log_metrics(self, metrics, step_idx=None):
+    def log_metrics(self, metrics, step=None):
         # Comet.ml expects metrics to be a dictionary of detached tensors on CPU
         for key, val in metrics.items():
             if is_tensor(val):
                 metrics[key] = val.cpu().detach()
 
-        self.experiment.log_metrics(metrics, step=step_idx)
+        self.experiment.log_metrics(metrics, step=step)
 
     @rank_zero_only
     def finalize(self, status):
@@ -167,9 +171,4 @@ class CometLogger(LightningLoggerBase):
 
     @property
     def version(self):
-        if self.project_name and self.rest_api_key:
-            # Determines the number of experiments in this project, and returns the next integer as the version number
-            num_exps = len(self.comet_api.get_experiments(self.workspace, self.project_name))
-            return num_exps + 1
-        else:
-            return None
+        return self.experiment.id

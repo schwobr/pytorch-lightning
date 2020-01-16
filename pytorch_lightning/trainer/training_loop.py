@@ -23,7 +23,7 @@ It can be useful to force training for a minimum number of epochs or limit to a 
 .. code-block:: python
 
     # DEFAULT
-    trainer = Trainer(min_num_epochs=1, max_num_epochs=1000)
+    trainer = Trainer(min_epochs=1, max_epochs=1000)
 
 Early stopping
 --------------
@@ -49,6 +49,9 @@ To modify this behavior, pass in your own EarlyStopping callback.
 
     # pass in your own to override the default callback
     trainer = Trainer(early_stop_callback=early_stop_callback)
+
+    # pass in min_epochs to enable the callback after min_epochs have run
+    trainer = Trainer(early_stop_callback=early_stop_callback, min_epochs=5)
 
     # pass in None to disable it
     trainer = Trainer(early_stop_callback=None)
@@ -151,6 +154,7 @@ When this flag is enabled each batch is split into sequences of size truncated_b
 
 import inspect
 from abc import ABC, abstractmethod
+import warnings
 
 import numpy as np
 
@@ -169,22 +173,23 @@ class TrainerTrainLoopMixin(ABC):
     def __init__(self):
         # this is just a summary on variables used in this abstract class,
         #  the proper values/initialisation should be done in child class
-        self.max_nb_epochs = None
+        self.max_epochs = None
+        self.min_epochs = None
         self.use_ddp = None
         self.use_dp = None
         self.use_ddp2 = None
         self.single_gpu = None
         self.data_parallel_device_ids = None
         self.check_val_every_n_epoch = None
-        self.nb_training_batches = None
+        self.num_training_batches = None
         self.val_check_batch = None
-        self.nb_val_batches = None
+        self.num_val_batches = None
+        self.disable_validation = None
         self.fast_dev_run = None
         self.is_iterable_train_dataloader = None
         self.main_progress_bar = None
         self.accumulation_scheduler = None
         self.lr_schedulers = None
-        self.min_nb_epochs = None
         self.enable_early_stop = None
         self.early_stop_callback = None
         self.callback_metrics = None
@@ -194,7 +199,7 @@ class TrainerTrainLoopMixin(ABC):
         self.log_save_interval = None
         self.proc_rank = None
         self.row_log_interval = None
-        self.total_batch_nb = None
+        self.total_batches = None
         self.truncated_bptt_steps = None
         self.optimizers = None
         self.accumulate_grad_batches = None
@@ -206,6 +211,24 @@ class TrainerTrainLoopMixin(ABC):
         self.training_tqdm_dict = None
         self.get_train_dataloader = None
         self.reduce_lr_on_plateau_scheduler = None
+
+    @property
+    def max_nb_epochs(self):
+        """
+        .. warning:: `max_nb_epochs` is deprecated and will be removed in v0.8.0, use `max_epochs` instead.
+        """
+        warnings.warn("`max_nb_epochs` is deprecated and will be removed in "
+                      "v0.8.0, use `max_epochs` instead.", DeprecationWarning)
+        return self.max_epochs
+
+    @property
+    def min_nb_epochs(self):
+        """
+        .. warning:: `min_nb_epochs` is deprecated and will be removed in v0.8.0, use `min_epochs` instead.
+        """
+        warnings.warn("`min_nb_epochs` is deprecated and will be removed in "
+                      "v0.8.0, use `min_epochs` instead.", DeprecationWarning)
+        return self.min_epochs
 
     @abstractmethod
     def get_model(self):
@@ -258,27 +281,30 @@ class TrainerTrainLoopMixin(ABC):
         pass
 
     def train(self):
+        model = self.get_model()
         # run all epochs
-        for epoch_idx in range(self.current_epoch, self.max_num_epochs):
+        for epoch in range(self.current_epoch, self.max_epochs):
             # set seed for distributed sampler (enables shuffling for each epoch)
             if self.use_ddp and hasattr(self.get_train_dataloader().sampler, 'set_epoch'):
-                self.get_train_dataloader().sampler.set_epoch(epoch_idx)
+                self.get_train_dataloader().sampler.set_epoch(epoch)
 
             # get model
             model = self.get_model()
 
             # update training progress in trainer and model
-            model.current_epoch = epoch_idx
-            self.current_epoch = epoch_idx
+            model.current_epoch = epoch
+            self.current_epoch = epoch
 
-            # val can be checked multiple times in epoch
-            is_val_epoch = (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
-            val_checks_per_epoch = self.num_training_batches // self.val_check_batch
-            val_checks_per_epoch = val_checks_per_epoch if is_val_epoch else 0
+            total_val_batches = 0
+            if not self.disable_validation:
+                # val can be checked multiple times in epoch
+                is_val_epoch = (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
+                val_checks_per_epoch = self.num_training_batches // self.val_check_batch
+                val_checks_per_epoch = val_checks_per_epoch if is_val_epoch else 0
+                total_val_batches = self.num_val_batches * val_checks_per_epoch
 
             # total batches includes multiple val checks
-            self.total_batches = (self.num_training_batches +
-                                  self.num_val_batches * val_checks_per_epoch)
+            self.total_batches = self.num_training_batches + total_val_batches
             self.batch_loss_value = 0  # accumulated grads
 
             if self.fast_dev_run:
@@ -294,11 +320,11 @@ class TrainerTrainLoopMixin(ABC):
             # .reset() doesn't work on disabled progress bar so we should check
             if not self.main_progress_bar.disable:
                 self.main_progress_bar.reset(num_iterations)
-            desc = f'Epoch {epoch_idx + 1}' if not self.is_iterable_train_dataloader else ''
+            desc = f'Epoch {epoch + 1}' if not self.is_iterable_train_dataloader else ''
             self.main_progress_bar.set_description(desc)
 
             # changing gradient according accumulation_scheduler
-            self.accumulation_scheduler.on_epoch_begin(epoch_idx, self)
+            self.accumulation_scheduler.on_epoch_begin(epoch, self)
 
             # -----------------
             # RUN TNG EPOCH
@@ -319,9 +345,9 @@ class TrainerTrainLoopMixin(ABC):
                 self.reduce_lr_on_plateau_scheduler.step(val_loss, epoch=self.current_epoch)
 
             # early stopping
-            met_min_epochs = epoch_idx > self.min_num_epochs
+            met_min_epochs = epoch >= self.min_epochs - 1
             if self.enable_early_stop and (met_min_epochs or self.fast_dev_run):
-                should_stop = self.early_stop_callback.on_epoch_end(epoch=epoch_idx,
+                should_stop = self.early_stop_callback.on_epoch_end(epoch=epoch,
                                                                     logs=self.callback_metrics)
                 # stop training
                 stop = should_stop and met_min_epochs
@@ -330,6 +356,8 @@ class TrainerTrainLoopMixin(ABC):
                     return
 
         self.main_progress_bar.close()
+
+        model.on_train_end()
 
         if self.logger is not None:
             self.logger.finalize("success")
@@ -342,6 +370,10 @@ class TrainerTrainLoopMixin(ABC):
 
         # run epoch
         for batch_idx, batch in enumerate(self.get_train_dataloader()):
+            # stop epoch if we limited the number of training batches
+            if batch_idx >= self.num_training_batches:
+                break
+
             self.batch_idx = batch_idx
 
             model = self.get_model()
@@ -361,7 +393,8 @@ class TrainerTrainLoopMixin(ABC):
             # ---------------
             is_val_check_batch = (batch_idx + 1) % self.val_check_batch == 0
             can_check_epoch = (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
-            should_check_val = ((is_val_check_batch or early_stop_epoch) and can_check_epoch)
+            should_check_val = (not self.disable_validation and can_check_epoch and
+                                (is_val_check_batch or early_stop_epoch))
 
             # fast_dev_run always forces val checking after train batch
             if self.fast_dev_run or should_check_val:
@@ -386,11 +419,6 @@ class TrainerTrainLoopMixin(ABC):
             # stop when the flag is changed or we've gone past the amount
             # requested in the batches
             if early_stop_epoch or self.fast_dev_run:
-                break
-
-            # stop epoch if we limited nb batches
-            met_batch_limit = batch_idx >= self.num_training_batches
-            if met_batch_limit:
                 break
 
         # epoch end hook
@@ -430,6 +458,13 @@ class TrainerTrainLoopMixin(ABC):
 
             # call training_step once per optimizer
             for opt_idx, optimizer in enumerate(self.optimizers):
+                # make sure only the gradients of the current optimizer's paramaters are calculated 
+                # in the training step to prevent dangling gradients in multiple-optimizer setup.
+                for param in self.get_model().parameters():
+                    param.requires_grad = False
+                for group in optimizer.param_groups:
+                    for param in group['params']:
+                        param.requires_grad = True
 
                 # wrap the forward step in a closure so second order methods work
                 def optimizer_closure():

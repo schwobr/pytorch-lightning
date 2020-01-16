@@ -52,7 +52,7 @@ only the first process in DDP training logs data.
             pass
 
         @rank_zero_only
-        def log_metrics(self, metrics, step_idx):
+        def log_metrics(self, metrics, step):
             # metrics is a dictionary of metric names and values
             # your code to record metrics goes here
             pass
@@ -168,6 +168,8 @@ Every k batches, lightning will write the new logs to disk
 from os import environ
 from .base import LightningLoggerBase, rank_zero_only
 
+from .tensorboard import TensorBoardLogger
+
 try:
     from .test_tube import TestTubeLogger
 except ImportError:
@@ -179,9 +181,18 @@ except ImportError:
     pass
 
 try:
+    from .wandb import WandbLogger
+except ImportError:
+    pass
+try:
     # needed to prevent ImportError and duplicated logs.
     environ["COMET_DISABLE_AUTO_LOGGING"] = "1"
 
     from .comet import CometLogger
 except ImportError:
     del environ["COMET_DISABLE_AUTO_LOGGING"]
+
+try:
+    from .neptune import NeptuneLogger
+except ImportError:
+    pass

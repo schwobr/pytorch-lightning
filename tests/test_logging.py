@@ -1,9 +1,16 @@
 import os
 import pickle
 
+import pytest
+import torch
+
 import tests.utils as tutils
 from pytorch_lightning import Trainer
-from pytorch_lightning.logging import LightningLoggerBase, rank_zero_only
+from pytorch_lightning.logging import (
+    LightningLoggerBase,
+    rank_zero_only,
+    TensorBoardLogger,
+)
 from pytorch_lightning.testing import LightningTestModel
 
 
@@ -16,7 +23,8 @@ def test_testtube_logger(tmpdir):
     logger = tutils.get_test_tube_logger(tmpdir, False)
 
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         train_percent_check=0.01,
         logger=logger
     )
@@ -39,7 +47,8 @@ def test_testtube_pickle(tmpdir):
     logger.save()
 
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         train_percent_check=0.01,
         logger=logger
     )
@@ -63,15 +72,14 @@ def test_mlflow_logger(tmpdir):
     model = LightningTestModel(hparams)
 
     mlflow_dir = os.path.join(tmpdir, "mlruns")
-
-    logger = MLFlowLogger("test", f"file://{mlflow_dir}")
+    logger = MLFlowLogger("test", tracking_uri=f"file:{os.sep * 2}{mlflow_dir}")
 
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         train_percent_check=0.01,
         logger=logger
     )
-
     trainer = Trainer(**trainer_options)
     result = trainer.fit(model)
 
@@ -88,15 +96,14 @@ def test_mlflow_pickle(tmpdir):
     except ModuleNotFoundError:
         return
 
-    hparams = tutils.get_hparams()
-    model = LightningTestModel(hparams)
+    # hparams = tutils.get_hparams()
+    # model = LightningTestModel(hparams)
 
     mlflow_dir = os.path.join(tmpdir, "mlruns")
-
-    logger = MLFlowLogger("test", f"file://{mlflow_dir}")
-
+    logger = MLFlowLogger("test", tracking_uri=f"file:{os.sep * 2}{mlflow_dir}")
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         logger=logger
     )
 
@@ -106,8 +113,14 @@ def test_mlflow_pickle(tmpdir):
     trainer2.logger.log_metrics({"acc": 1.0})
 
 
-def test_comet_logger(tmpdir):
+def test_comet_logger(tmpdir, monkeypatch):
     """Verify that basic functionality of Comet.ml logger works."""
+
+    # prevent comet logger from trying to print at exit, since
+    # pytest's stdout/stderr redirection breaks it
+    import atexit
+    monkeypatch.setattr(atexit, "register", lambda _: None)
+
     tutils.reset_seed()
 
     try:
@@ -128,7 +141,8 @@ def test_comet_logger(tmpdir):
     )
 
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         train_percent_check=0.01,
         logger=logger
     )
@@ -140,8 +154,14 @@ def test_comet_logger(tmpdir):
     assert result == 1, "Training failed"
 
 
-def test_comet_pickle(tmpdir):
+def test_comet_pickle(tmpdir, monkeypatch):
     """Verify that pickling trainer with comet logger works."""
+
+    # prevent comet logger from trying to print at exit, since
+    # pytest's stdout/stderr redirection breaks it
+    import atexit
+    monkeypatch.setattr(atexit, "register", lambda _: None)
+
     tutils.reset_seed()
 
     try:
@@ -149,8 +169,8 @@ def test_comet_pickle(tmpdir):
     except ModuleNotFoundError:
         return
 
-    hparams = tutils.get_hparams()
-    model = LightningTestModel(hparams)
+    # hparams = tutils.get_hparams()
+    # model = LightningTestModel(hparams)
 
     comet_dir = os.path.join(tmpdir, "cometruns")
 
@@ -162,7 +182,8 @@ def test_comet_pickle(tmpdir):
     )
 
     trainer_options = dict(
-        max_num_epochs=1,
+        default_save_path=tmpdir,
+        max_epochs=1,
         logger=logger
     )
 
@@ -170,6 +191,148 @@ def test_comet_pickle(tmpdir):
     pkl_bytes = pickle.dumps(trainer)
     trainer2 = pickle.loads(pkl_bytes)
     trainer2.logger.log_metrics({"acc": 1.0})
+
+def test_wandb_logger(tmpdir):
+    """Verify that basic functionality of wandb logger works."""
+    tutils.reset_seed()
+
+    from pytorch_lightning.logging import WandbLogger
+
+    wandb_dir = os.path.join(tmpdir, "wandb")
+    logger = WandbLogger(save_dir=wandb_dir, anonymous=True)
+
+def test_neptune_logger(tmpdir):
+    """Verify that basic functionality of neptune logger works."""
+    tutils.reset_seed()
+
+    from pytorch_lightning.logging import NeptuneLogger
+
+    hparams = tutils.get_hparams()
+    model = LightningTestModel(hparams)
+    logger = NeptuneLogger(offline_mode=True)
+
+    trainer_options = dict(
+        default_save_path=tmpdir,
+        max_epochs=1,
+        train_percent_check=0.01,
+        logger=logger
+    )
+    trainer = Trainer(**trainer_options)
+    result = trainer.fit(model)
+
+    print('result finished')
+    assert result == 1, "Training failed"
+
+def test_wandb_pickle(tmpdir):
+    """Verify that pickling trainer with wandb logger works."""
+    tutils.reset_seed()
+
+    from pytorch_lightning.logging import WandbLogger
+    wandb_dir = str(tmpdir)
+    logger = WandbLogger(save_dir=wandb_dir, anonymous=True)
+
+def test_neptune_pickle(tmpdir):
+    """Verify that pickling trainer with neptune logger works."""
+    tutils.reset_seed()
+
+    from pytorch_lightning.logging import NeptuneLogger
+
+    # hparams = tutils.get_hparams()
+    # model = LightningTestModel(hparams)
+
+    logger = NeptuneLogger(offline_mode=True)
+
+    trainer_options = dict(
+        default_save_path=tmpdir,
+        max_epochs=1,
+        logger=logger
+    )
+
+    trainer = Trainer(**trainer_options)
+    pkl_bytes = pickle.dumps(trainer)
+    trainer2 = pickle.loads(pkl_bytes)
+    trainer2.logger.log_metrics({"acc": 1.0})
+
+
+def test_tensorboard_logger(tmpdir):
+    """Verify that basic functionality of Tensorboard logger works."""
+
+    hparams = tutils.get_hparams()
+    model = LightningTestModel(hparams)
+
+    logger = TensorBoardLogger(save_dir=tmpdir, name="tensorboard_logger_test")
+
+    trainer_options = dict(max_epochs=1, train_percent_check=0.01, logger=logger)
+
+    trainer = Trainer(**trainer_options)
+    result = trainer.fit(model)
+
+    print("result finished")
+    assert result == 1, "Training failed"
+
+
+def test_tensorboard_pickle(tmpdir):
+    """Verify that pickling trainer with Tensorboard logger works."""
+
+    # hparams = tutils.get_hparams()
+    # model = LightningTestModel(hparams)
+
+    logger = TensorBoardLogger(save_dir=tmpdir, name="tensorboard_pickle_test")
+
+    trainer_options = dict(max_epochs=1, logger=logger)
+
+    trainer = Trainer(**trainer_options)
+    pkl_bytes = pickle.dumps(trainer)
+    trainer2 = pickle.loads(pkl_bytes)
+    trainer2.logger.log_metrics({"acc": 1.0})
+
+
+def test_tensorboard_automatic_versioning(tmpdir):
+    """Verify that automatic versioning works"""
+
+    root_dir = tmpdir.mkdir("tb_versioning")
+    root_dir.mkdir("0")
+    root_dir.mkdir("1")
+
+    logger = TensorBoardLogger(save_dir=tmpdir, name="tb_versioning")
+
+    assert logger.version == 2
+
+
+def test_tensorboard_manual_versioning(tmpdir):
+    """Verify that manual versioning works"""
+
+    root_dir = tmpdir.mkdir("tb_versioning")
+    root_dir.mkdir("0")
+    root_dir.mkdir("1")
+    root_dir.mkdir("2")
+
+    logger = TensorBoardLogger(save_dir=tmpdir, name="tb_versioning", version=1)
+
+    assert logger.version == 1
+
+
+@pytest.mark.parametrize("step_idx", [10, None])
+def test_tensorboard_log_metrics(tmpdir, step_idx):
+    logger = TensorBoardLogger(tmpdir)
+    metrics = {
+        "float": 0.3,
+        "int": 1,
+        "FloatTensor": torch.tensor(0.1),
+        "IntTensor": torch.tensor(1)
+    }
+    logger.log_metrics(metrics, step_idx)
+
+
+def test_tensorboard_log_hyperparams(tmpdir):
+    logger = TensorBoardLogger(tmpdir)
+    hparams = {
+        "float": 0.3,
+        "int": 1,
+        "string": "abc",
+        "bool": True
+    }
+    logger.log_hyperparams(hparams)
 
 
 def test_custom_logger(tmpdir):
@@ -185,7 +348,7 @@ def test_custom_logger(tmpdir):
             self.hparams_logged = params
 
         @rank_zero_only
-        def log_metrics(self, metrics, step_idx):
+        def log_metrics(self, metrics, step):
             self.metrics_logged = metrics
 
         @rank_zero_only
@@ -206,8 +369,8 @@ def test_custom_logger(tmpdir):
     logger = CustomLogger()
 
     trainer_options = dict(
-        max_num_epochs=1,
-        train_percent_check=0.01,
+        max_epochs=1,
+        train_percent_check=0.05,
         logger=logger,
         default_save_path=tmpdir
     )

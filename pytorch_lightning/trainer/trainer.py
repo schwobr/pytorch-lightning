@@ -26,7 +26,7 @@ from pytorch_lightning.trainer.evaluation_loop import TrainerEvaluationLoopMixin
 from pytorch_lightning.trainer.logging import TrainerLoggingMixin
 from pytorch_lightning.trainer.model_hooks import TrainerModelHooksMixin
 from pytorch_lightning.trainer.training_loop import TrainerTrainLoopMixin
-from pytorch_lightning.trainer.trainer_io import TrainerIOMixin
+from pytorch_lightning.trainer.training_io import TrainerIOMixin
 from pytorch_lightning.trainer.training_tricks import TrainerTrainingTricksMixin
 from pytorch_lightning.utilities.debugging import MisconfigurationException
 
@@ -72,8 +72,8 @@ class Trainer(TrainerIOMixin,
             accumulate_grad_batches=1,
             max_nb_epochs=None,  # backward compatible, todo: remove in v0.8.0
             min_nb_epochs=None,  # backward compatible, todo: remove in v0.8.0
-            max_num_epochs=1000,
-            min_num_epochs=1,
+            max_epochs=1000,
+            min_epochs=1,
             train_percent_check=1.0,
             val_percent_check=1.0,
             test_percent_check=1.0,
@@ -111,8 +111,8 @@ class Trainer(TrainerIOMixin,
         :param int check_val_every_n_epoch: check val every n train epochs
         :param bool fast_dev_run: runs full iteration over everything to find bugs
         :param int accumulate_grad_batches: Accumulates grads every k batches
-        :param int max_num_epochs:
-        :param int min_num_epochs:
+        :param int max_epochs:
+        :param int min_epochs:
         :param int train_percent_check: How much of train set to check
         :param int val_percent_check: How much of val set to check
         :param int test_percent_check: How much of test set to check
@@ -139,41 +139,53 @@ class Trainer(TrainerIOMixin,
 
         """
         # Transfer params
-        if nb_gpu_nodes is not None:  # Backward compatibility
+        # Backward compatibility
+        if nb_gpu_nodes is not None:
             warnings.warn("`nb_gpu_nodes` has renamed to `num_nodes` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
             if not num_nodes:  # in case you did not set the proper value
                 num_nodes = nb_gpu_nodes
         self.num_gpu_nodes = num_nodes
+
         self.log_gpu_memory = log_gpu_memory
-        if gradient_clip is not None:  # Backward compatibility
+
+        # Backward compatibility
+        if gradient_clip is not None:
             warnings.warn("`gradient_clip` has renamed to `gradient_clip_val` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
             if not gradient_clip_val:  # in case you did not set the proper value
                 gradient_clip_val = gradient_clip
         self.gradient_clip_val = gradient_clip_val
+
         self.check_val_every_n_epoch = check_val_every_n_epoch
         self.track_grad_norm = track_grad_norm
         self.on_gpu = True if (gpus and torch.cuda.is_available()) else False
         self.process_position = process_position
         self.weights_summary = weights_summary
-        if max_nb_epochs is not None:  # Backward compatibility
-            warnings.warn("`max_nb_epochs` has renamed to `max_num_epochs` since v0.5.0"
+
+        # Backward compatibility
+        if max_nb_epochs is not None:
+            warnings.warn("`max_nb_epochs` has renamed to `max_epochs` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
-            if not max_num_epochs:  # in case you did not set the proper value
-                max_num_epochs = max_nb_epochs
-        self.max_num_epochs = max_num_epochs
-        if min_nb_epochs is not None:  # Backward compatibility
-            warnings.warn("`min_nb_epochs` has renamed to `min_num_epochs` since v0.5.0"
+            if not max_epochs:  # in case you did not set the proper value
+                max_epochs = max_nb_epochs
+        self.max_epochs = max_epochs
+
+        # Backward compatibility
+        if min_nb_epochs is not None:
+            warnings.warn("`min_nb_epochs` has renamed to `min_epochs` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
-            if not min_num_epochs:  # in case you did not set the proper value
-                min_num_epochs = min_nb_epochs
-        self.min_num_epochs = min_num_epochs
-        if nb_sanity_val_steps is not None:  # Backward compatibility
+            if not min_epochs:  # in case you did not set the proper value
+                min_epochs = min_nb_epochs
+        self.min_epochs = min_epochs
+
+        # Backward compatibility
+        if nb_sanity_val_steps is not None:
             warnings.warn("`nb_sanity_val_steps` has renamed to `num_sanity_val_steps` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
             if not num_sanity_val_steps:  # in case you did not set the proper value
                 num_sanity_val_steps = nb_sanity_val_steps
+
         self.num_sanity_val_steps = num_sanity_val_steps
         self.print_nan_grads = print_nan_grads
         self.truncated_bptt_steps = truncated_bptt_steps
@@ -183,7 +195,7 @@ class Trainer(TrainerIOMixin,
         self.fast_dev_run = fast_dev_run
         if self.fast_dev_run:
             self.num_sanity_val_steps = 1
-            self.max_num_epochs = 1
+            self.max_epochs = 1
             m = '''
             Running in fast_dev_run mode: will run a full train,
             val loop using a single batch
@@ -213,6 +225,7 @@ class Trainer(TrainerIOMixin,
         # training state
         self.model = None
         self.testing = False
+        self.disable_validation = False
         self.lr_schedulers = []
         self.optimizers = None
         self.global_step = 0
@@ -261,8 +274,9 @@ class Trainer(TrainerIOMixin,
         # logging
         self.log_save_interval = log_save_interval
         self.val_check_interval = val_check_interval
+
+        # backward compatibility
         if add_row_log_interval is not None:
-            # backward compatibility
             warnings.warn("`add_row_log_interval` has renamed to `row_log_interval` since v0.5.0"
                           " and will be removed in v0.8.0", DeprecationWarning)
             if not row_log_interval:  # in case you did not set the proper value
@@ -346,7 +360,7 @@ class Trainer(TrainerIOMixin,
             tqdm_dict['split_idx'] = self.split_idx
 
         if self.logger is not None and self.logger.version is not None:
-            tqdm_dict['v_nb'] = self.logger.version
+            tqdm_dict['v_num'] = self.logger.version
 
         tqdm_dict.update(self.tqdm_metrics)
 
@@ -486,12 +500,19 @@ class Trainer(TrainerIOMixin,
             self.run_evaluation(test=True)
             return
 
+        # check if we should run validation during training
+        self.disable_validation = ((self.num_val_batches == 0 or
+                                   not self.is_overriden('validation_step')) and
+                                   not self.fast_dev_run)
+
         # run tiny validation (if validation defined)
         # to make sure program won't crash during val
         ref_model.on_sanity_check_start()
-        if self.get_val_dataloaders() is not None and self.num_sanity_val_steps > 0:
+        ref_model.on_train_start()
+        if not self.disable_validation and self.num_sanity_val_steps > 0:
             # init progress bars for validation sanity check
-            pbar = tqdm.tqdm(desc='Validation sanity check', total=self.num_sanity_val_steps,
+            pbar = tqdm.tqdm(desc='Validation sanity check',
+                             total=self.num_sanity_val_steps * len(self.get_val_dataloaders()),
                              leave=False, position=2 * self.process_position,
                              disable=not self.show_progress_bar, dynamic_ncols=True, unit='batch')
             self.main_progress_bar = pbar

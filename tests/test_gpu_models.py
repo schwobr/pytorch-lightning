@@ -33,7 +33,7 @@ def test_multi_gpu_model_ddp2(tmpdir):
     trainer_options = dict(
         default_save_path=tmpdir,
         show_progress_bar=True,
-        max_num_epochs=1,
+        max_epochs=1,
         train_percent_check=0.4,
         val_percent_check=0.2,
         gpus=2,
@@ -56,7 +56,7 @@ def test_multi_gpu_model_ddp(tmpdir):
     trainer_options = dict(
         default_save_path=tmpdir,
         show_progress_bar=False,
-        max_num_epochs=1,
+        max_epochs=1,
         train_percent_check=0.4,
         val_percent_check=0.2,
         gpus=[0, 1],
@@ -109,7 +109,7 @@ def test_cpu_slurm_save_load(tmpdir):
     version = logger.version
 
     trainer_options = dict(
-        max_num_epochs=1,
+        max_epochs=1,
         logger=logger,
         checkpoint_callback=ModelCheckpoint(tmpdir)
     )
@@ -143,7 +143,7 @@ def test_cpu_slurm_save_load(tmpdir):
     logger = tutils.get_test_tube_logger(tmpdir, False, version=version)
 
     trainer_options = dict(
-        max_num_epochs=1,
+        max_epochs=1,
         logger=logger,
         checkpoint_callback=ModelCheckpoint(tmpdir),
     )
@@ -177,7 +177,7 @@ def test_multi_gpu_none_backend(tmpdir):
     trainer_options = dict(
         default_save_path=tmpdir,
         show_progress_bar=False,
-        max_num_epochs=1,
+        max_epochs=1,
         train_percent_check=0.1,
         val_percent_check=0.1,
         gpus='-1'
@@ -199,7 +199,7 @@ def test_multi_gpu_model_dp(tmpdir):
         default_save_path=tmpdir,
         show_progress_bar=False,
         distributed_backend='dp',
-        max_num_epochs=1,
+        max_epochs=1,
         train_percent_check=0.1,
         val_percent_check=0.1,
         gpus='-1'
@@ -227,7 +227,7 @@ def test_ddp_sampler_error(tmpdir):
     trainer = Trainer(
         logger=logger,
         show_progress_bar=False,
-        max_num_epochs=1,
+        max_epochs=1,
         gpus=[0, 1],
         distributed_backend='ddp',
         use_amp=True
@@ -351,9 +351,14 @@ test_parse_gpu_ids_data = [
     pytest.param(None, None),
     pytest.param(0, None),
     pytest.param(1, [0]),
-    pytest.param(-1, list(range(PRETEND_N_OF_GPUS)), id="-1 - use all gpus"),
-    pytest.param('-1', list(range(PRETEND_N_OF_GPUS)), id="'-1' - use all gpus"),
     pytest.param(3, [0, 1, 2]),
+    pytest.param(-1, list(range(PRETEND_N_OF_GPUS)), id="-1 - use all gpus"),
+    pytest.param([0], [0]),
+    pytest.param([1, 3], [1, 3]),
+    pytest.param('0', [0]),
+    pytest.param('3', [3]),
+    pytest.param('1, 3', [1, 3]),
+    pytest.param('-1', list(range(PRETEND_N_OF_GPUS)), id="'-1' - use all gpus"),
 ]
 
 
@@ -361,6 +366,33 @@ test_parse_gpu_ids_data = [
 @pytest.mark.parametrize(['gpus', 'expected_gpu_ids'], test_parse_gpu_ids_data)
 def test_parse_gpu_ids(mocked_device_count, gpus, expected_gpu_ids):
     assert parse_gpu_ids(gpus) == expected_gpu_ids
+
+
+test_parse_gpu_invalid_inputs_data = [
+    pytest.param(0.1),
+    pytest.param(-2),
+    pytest.param(False),
+    pytest.param([]),
+    pytest.param([-1]),
+    pytest.param([None]),
+    pytest.param(['0']),
+    pytest.param((0, 1)),
+]
+
+
+@pytest.mark.gpus_param_tests
+@pytest.mark.parametrize(['gpus'], test_parse_gpu_invalid_inputs_data)
+def test_parse_gpu_fail_on_unsupported_inputs(mocked_device_count, gpus):
+    with pytest.raises(MisconfigurationException):
+        parse_gpu_ids(gpus)
+
+
+@pytest.mark.gpus_param_tests
+@pytest.mark.parametrize("gpus", [''])
+def test_parse_gpu_fail_on_empty_string(mocked_device_count, gpus):
+    # This currently results in a ValueError instead of MisconfigurationException
+    with pytest.raises(ValueError):
+        parse_gpu_ids(gpus)
 
 
 @pytest.mark.gpus_param_tests

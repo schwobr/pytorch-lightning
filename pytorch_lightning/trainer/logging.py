@@ -21,7 +21,7 @@ class TrainerLoggingMixin(ABC):
         self.use_ddp2 = None
         self.num_gpus = None
 
-    def log_metrics(self, metrics, grad_norm_dic):
+    def log_metrics(self, metrics, grad_norm_dic, step=None):
         """Logs the metric dict passed in.
 
         :param metrics:
@@ -41,9 +41,10 @@ class TrainerLoggingMixin(ABC):
         # turn all tensors to scalars
         scalar_metrics = self.metrics_to_scalars(metrics)
 
+        step = step if step is not None else self.global_step
         # log actual metrics
         if self.proc_rank == 0 and self.logger is not None:
-            self.logger.log_metrics(scalar_metrics, step_idx=self.global_step)
+            self.logger.log_metrics(scalar_metrics, step=step)
             self.logger.save()
 
     def add_tqdm_metrics(self, metrics):
@@ -87,7 +88,8 @@ class TrainerLoggingMixin(ABC):
             callback_metrics = self.reduce_distributed_output(callback_metrics, num_gpus)
 
         for k, v in callback_metrics.items():
-            callback_metrics[k] = v.item()
+            if isinstance(v, torch.Tensor):
+                callback_metrics[k] = v.item()
 
         # ---------------
         # EXTRACT PROGRESS BAR KEYS
@@ -175,7 +177,7 @@ class TrainerLoggingMixin(ABC):
             elif isinstance(output[k], torch.Tensor) and output[k].dim() == 0:
                 pass
 
-            # reduce only metrics that have the same nb of gpus
+            # reduce only metrics that have the same number of gpus
             elif output[k].size(0) == num_gpus:
                 reduced = torch.mean(output[k])
                 output[k] = reduced
