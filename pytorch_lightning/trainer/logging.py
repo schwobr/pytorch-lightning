@@ -28,7 +28,7 @@ class TrainerLoggingMixin(ABC):
         :param grad_norm_dic:
         """
         # added metrics by Lightning for convenience
-        metrics['epoch'] = self.current_epoch
+        # metrics['epoch'] = self.current_epoch
 
         # add gpu memory
         if self.on_gpu and self.log_gpu_memory:
@@ -44,7 +44,7 @@ class TrainerLoggingMixin(ABC):
         step = step if step is not None else self.global_step
         # log actual metrics
         if self.proc_rank == 0 and self.logger is not None:
-            self.logger.log_metrics(scalar_metrics, step=step)
+            self.logger.log_metrics(scalar_metrics, step=step, epoch=self.current_epoch)
             self.logger.save()
 
     def add_tqdm_metrics(self, metrics):

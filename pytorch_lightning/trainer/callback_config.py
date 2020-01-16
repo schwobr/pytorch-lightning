@@ -26,7 +26,7 @@ class TrainerCallbackConfigMixin(ABC):
             if self.logger is not None:
                 ckpt_path = os.path.join(
                     self.default_save_path,
-                    self.logger.name,
+                    'lightning_logs',
                     f'version_{self.logger.version}',
                     "checkpoints"
                 )
