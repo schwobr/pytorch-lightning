@@ -128,7 +128,7 @@ class NeptuneLogger(LightningLoggerBase):
             self.experiment.set_property(f"param__{key}", val)
 
     @rank_zero_only
-    def log_metrics(self, metrics, step=None):
+    def log_metrics(self, metrics, step=None, epoch=None):
         """Log metrics (numeric values) in Neptune experiments
 
         :param float metric: Dictionary with metric names as keys and measured quanties as values
@@ -140,10 +140,11 @@ class NeptuneLogger(LightningLoggerBase):
             if is_tensor(val):
                 val = val.cpu().detach()
 
-            if step is None:
+            if step is None and epoch is None:
                 self.experiment.log_metric(key, val)
             else:
-                self.experiment.log_metric(key, x=step, y=val)
+                x = step if key in ['train_loss', 'lr', 'epoch'] or epoch is None else epoch
+                self.experiment.log_metric(key, x=x, y=val)
 
     @rank_zero_only
     def finalize(self, status):
