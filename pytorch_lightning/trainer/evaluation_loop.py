@@ -309,7 +309,7 @@ class TrainerEvaluationLoopMixin(ABC):
         self.add_tqdm_metrics(prog_bar_metrics)
 
         # log metrics
-        self.log_metrics(log_metrics, {})
+        self.log_metrics(log_metrics, {}, step=self.current_epoch)
 
         # track metrics for callbacks
         self.callback_metrics.update(callback_metrics)
