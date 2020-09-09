@@ -83,11 +83,7 @@ setup(
     author=pytorch_lightning.__author__,
     author_email=pytorch_lightning.__author_email__,
     url=pytorch_lightning.__homepage__,
-<<<<<<< HEAD
     download_url='https://github.com/schwobr/pytorch-lightning',
-=======
-    download_url='https://github.com/PyTorchLightning/pytorch-lightning',
->>>>>>> 656c1af0df0cd0a8102a69c9c5045e86dc2b6b3a
     license=pytorch_lightning.__license__,
     packages=find_packages(exclude=['tests', 'tests/*', 'benchmarks']),
 
