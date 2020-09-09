@@ -1,14 +1,32 @@
+# Copyright The PyTorch Lightning team.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import itertools
 import threading
+from collections.abc import Mapping, Iterable
 from itertools import chain
 
 import torch
 from torch.cuda._utils import _get_device_index
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
+from torch.nn.parallel._functions import Gather
+
+from pytorch_lightning.core.step_result import Result
 
 
-def _find_tensors(obj):  # pragma: no cover
+def _find_tensors(obj):  # pragma: no-cover
     r"""
     Recursively find all tensors contained in the specified object.
     """
@@ -21,11 +39,11 @@ def _find_tensors(obj):  # pragma: no cover
     return []
 
 
-def get_a_var(obj):  # pragma: no cover
+def get_a_var(obj):  # pragma: no-cover
     if isinstance(obj, torch.Tensor):
         return obj
 
-    if isinstance(obj, list) or isinstance(obj, tuple):
+    if isinstance(obj, (list, tuple)):
         for result in map(get_a_var, obj):
             if isinstance(result, torch.Tensor):
                 return result
@@ -56,14 +74,74 @@ class LightningDataParallel(DataParallel):
             # lightning
             if self.module.training:
                 return self.module.training_step(*inputs[0], **kwargs[0])
-            elif self.module.testing:
+            if self.module.testing:
                 return self.module.test_step(*inputs[0], **kwargs[0])
-            else:
-                return self.module.validation_step(*inputs[0], **kwargs[0])
+
+            return self.module.validation_step(*inputs[0], **kwargs[0])
 
         replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
         outputs = self.parallel_apply(replicas, inputs, kwargs)
-        return self.gather(outputs, self.output_device)
+
+        if isinstance(outputs[0], Result):
+            outputs = self.__gather_structured_result(outputs)
+        else:
+            outputs = self.gather(outputs)
+        return outputs
+
+    def __gather_structured_result(self, outputs):
+        prototype_output = outputs[0]
+        original_class = prototype_output.__class__
+        outputs = [dict(x) for x in outputs]
+
+        # remove all the meta info
+        meta = outputs[0]['meta']
+        for i, output in enumerate(outputs):
+            del output['meta']
+
+        outputs = self.gather(outputs)
+
+        # pass minimize to constructor for TrainResult
+        if 'minimize' in outputs:
+            result = original_class(outputs['minimize'])
+        else:
+            result = original_class()
+
+        result.update(outputs)
+        result['meta'] = meta
+        return result
+
+    def gather(self, outputs):
+        r"""
+        Override the gather method to support python scalars as well.
+        """
+        def gather_map(outputs):
+            elem = outputs[0]
+            elem_type = type(elem)
+
+            if isinstance(elem, torch.Tensor):
+                return Gather.apply(self.output_device, self.dim, *outputs)
+
+            if elem is None:
+                return None
+
+            if isinstance(elem, Mapping):
+                if not all((len(elem) == len(d) for d in outputs)):
+                    raise ValueError('All dicts must have the same number of keys')
+                return elem_type(((k, gather_map([d[k] for d in outputs]))
+                                  for k in elem))
+
+            if isinstance(elem, Iterable) and not isinstance(elem, str):
+                return elem_type(map(gather_map, zip(*outputs)))
+
+            return outputs
+
+        # Recursive function calls like this create reference cycles.
+        # Setting the function to None clears the refcycle.
+        try:
+            res = gather_map(outputs)
+        finally:
+            gather_map = None
+        return res
 
     def parallel_apply(self, replicas, inputs, kwargs):
         return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
@@ -77,7 +155,7 @@ class LightningDistributedDataParallel(DistributedDataParallel):
     def parallel_apply(self, replicas, inputs, kwargs):
         return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
-    def forward(self, *inputs, **kwargs):  # pragma: no cover
+    def forward(self, *inputs, **kwargs):  # pragma: no-cover
         self._sync_params()
         if self.device_ids:
             inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
@@ -98,8 +176,14 @@ class LightningDistributedDataParallel(DistributedDataParallel):
                 outputs = self.parallel_apply(self._module_copies[:len(inputs)], inputs, kwargs)
                 output = self.gather(outputs, self.output_device)
         else:
-            # normal
-            output = self.module(*inputs, **kwargs)
+            # output = self.module(*inputs, **kwargs)
+            # normal lightning (ddp_cpu)
+            if self.module.training:
+                output = self.module.training_step(*inputs, **kwargs)
+            elif self.module.testing:
+                output = self.module.test_step(*inputs, **kwargs)
+            else:
+                output = self.module.validation_step(*inputs, **kwargs)
 
         if torch.is_grad_enabled():
             # We'll return the output object verbatim since it is a freeform
@@ -114,7 +198,7 @@ class LightningDistributedDataParallel(DistributedDataParallel):
         return output
 
 
-def parallel_apply(modules, inputs, kwargs_tup=None, devices=None):  # pragma: no cover
+def parallel_apply(modules, inputs, kwargs_tup=None, devices=None):  # pragma: no-cover
     r"""Applies each `module` in :attr:`modules` in parallel on arguments
     contained in :attr:`inputs` (positional) and :attr:`kwargs_tup` (keyword)
     on each of :attr:`devices`.
@@ -153,6 +237,8 @@ def parallel_apply(modules, inputs, kwargs_tup=None, devices=None):  # pragma: n
                 if not isinstance(input, (list, tuple)):
                     input = (input,)
 
+                module = module.to(device)
+
                 # ---------------
                 # CHANGE
                 if module.training:
@@ -163,13 +249,16 @@ def parallel_apply(modules, inputs, kwargs_tup=None, devices=None):  # pragma: n
 
                 else:
                     output = module.validation_step(*input, **kwargs)
+
+                if module.use_dp or module.use_ddp2:
+                    auto_squeeze_dim_zeros(output)
                 # ---------------
 
             with lock:
                 results[i] = output
-        except Exception as e:
+        except Exception as ex:
             with lock:
-                results[i] = e
+                results[i] = ex
 
     # TODO: fix hack (maybe not a hack)
     # make sure each module knows what training state it's in...
@@ -199,3 +288,18 @@ def parallel_apply(modules, inputs, kwargs_tup=None, devices=None):  # pragma: n
             raise output
         outputs.append(output)
     return outputs
+
+
+def auto_squeeze_dim_zeros(output):
+    """
+    In DP or DDP2 we need to unsqueeze dim 0
+    :param output:
+    :return:
+    """
+    for k, v in output.items():
+        if not isinstance(v, torch.Tensor):
+            continue
+
+        is_scalar = v.dim() == 0
+        if is_scalar:
+            output[k] = output[k].unsqueeze(0)

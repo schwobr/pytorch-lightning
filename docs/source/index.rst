@@ -3,33 +3,121 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to PyTorch-Lightning!
-=============================
+PyTorch Lightning Documentation
+===============================
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 1
    :name: start
-   :caption: Quick Start
+   :caption: Getting started
 
    new-project
-   examples
+   converting
 
 .. toctree::
-   :maxdepth: 4
-   :name: docs
-   :caption: Docs
+   :maxdepth: 1
+   :name: advanced
+   :caption: Advanced use
 
-   documentation
+   introduction_guide
+   performance
+
+.. toctree::
+   :maxdepth: 2
+   :name: pl_docs
+   :caption: Lightning API
+
+   lightning-module
+   trainer
+
+.. toctree::
+   :maxdepth: 2
+   :name: docs
+   :caption: Optional extensions
+
+   callbacks
+   datamodules
+   loggers
+   metrics
+   results
+
+.. toctree::
+   :maxdepth: 1
+   :name: Bolts
+   :caption: Bolts
+
+   bolts
+
+.. toctree::
+   :maxdepth: 1
+   :name: Examples
+   :caption: Examples
+
+   community_examples
+   Autoencoder <https://pytorch-lightning-bolts.readthedocs.io/en/latest/autoencoders.html#autoencoders>
+   BYOL <https://pytorch-lightning-bolts.readthedocs.io/en/latest/self_supervised_models.html#byol>
+   DQN <https://pytorch-lightning-bolts.readthedocs.io/en/latest/reinforce_learn.html#deep-q-network-dqn>
+   GAN <https://pytorch-lightning-bolts.readthedocs.io/en/latest/gans.html#basic-gan>
+   GPT-2 <https://pytorch-lightning-bolts.readthedocs.io/en/latest/convolutional.html#gpt-2>
+   Image-GPT <https://pytorch-lightning-bolts.readthedocs.io/en/latest/convolutional.html#image-gpt>
+   SimCLR <https://pytorch-lightning-bolts.readthedocs.io/en/latest/self_supervised_models.html#simclr>
+   VAE <https://pytorch-lightning-bolts.readthedocs.io/en/latest/autoencoders.html#basic-vae>
+
+.. toctree::
+   :maxdepth: 1
+   :name: Tutorials
+   :caption: Tutorials
+
+   PyTorch Lightning 101 class <https://www.youtube.com/playlist?list=PLaMu-SDt_RB5NUm67hU2pdE75j6KaIOv2>
+   From PyTorch to PyTorch Lightning <https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09>
+   Video on how to refactor PyTorch into PyTorch Lightning <https://www.youtube.com/watch?v=QHww1JH7IDU>
+
+.. toctree::
+   :maxdepth: 1
+   :name: project structure
+   :caption: Recommended Lightning Project Layout
+
+   Lightning project seed <https://github.com/PyTorchLightning/pytorch-lightning-conference-seed>
+
+.. toctree::
+   :maxdepth: 1
+   :name: Common Use Cases
+   :caption: Common Use Cases
+
+   apex
+   slurm
+   child_modules
+   debugging
+   experiment_logging
+   experiment_reporting
+   early_stopping
+   fast_training
+   hooks
+   hyperparameters
+   lr_finder
+   multi_gpu
+   multiple_loaders
+   weights_loading
+   optimizers
+   profiler
+   single_gpu
+   sequences
+   training_tricks
+   transfer_learning
+   tpu
+   test_set
+   production_inference
 
 .. toctree::
    :maxdepth: 1
    :name: community
    :caption: Community
 
+
    CODE_OF_CONDUCT.md
    CONTRIBUTING.md
    BECOMING_A_CORE_CONTRIBUTOR.md
-
+   governance.md
 
 Indices and tables
 ------------------
@@ -38,3 +126,18 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
+
+
+.. This is here to make sphinx aware of the modules but not throw an error/warning
+.. toctree::
+   :hidden:
+
+   api/pytorch_lightning.core
+   api/pytorch_lightning.callbacks
+   api/pytorch_lightning.loggers
+   api/pytorch_lightning.metrics
+   api/pytorch_lightning.overrides
+   api/pytorch_lightning.profiler
+   api/pytorch_lightning.trainer
+   api/pytorch_lightning.utilities
+   api/pytorch_lightning.tuner
