@@ -2,14 +2,16 @@
 name: Bug report
 about: Create a report to help us improve
 title: ''
-labels: bug
+labels: bug / fix, help wanted
 assignees: ''
 
 ---
 
+<!-- 
 ### Common bugs:
-1. Tensorboard not showing in Jupyter-notebook see [issue 79](https://github.com/williamFalcon/pytorch-lightning/issues/79).    
-2. PyTorch 1.1.0 vs 1.2.0 support [see FAQ](https://github.com/williamFalcon/pytorch-lightning#faq)    
+1. Tensorboard not showing in Jupyter-notebook see [issue 79](https://github.com/PyTorchLightning/pytorch-lightning/issues/79).    
+2. PyTorch 1.1.0 vs 1.2.0 support [see FAQ](https://github.com/PyTorchLightning/pytorch-lightning#faq)    
+-->
 
 ## 🐛 Bug
 
@@ -38,14 +40,14 @@ Minimal means having the shortest code but still preserving the bug. -->
 ### Environment
 
 Please copy and paste the output from our
-[environment collection script](https://raw.githubusercontent.com/pytorch/pytorch/master/torch/utils/collect_env.py)
+[environment collection script](https://raw.githubusercontent.com/PyTorchLightning/pytorch-lightning/master/tests/collect_env_details.py)
 (or fill out the checklist below manually).
 
 You can get the script and run it with:
 ```
-wget https://raw.githubusercontent.com/pytorch/pytorch/master/torch/utils/collect_env.py
-# For security purposes, please check the contents of collect_env.py before running it.
-python collect_env.py
+wget https://raw.githubusercontent.com/PyTorchLightning/pytorch-lightning/master/tests/collect_env_details.py
+# For security purposes, please check the contents of collect_env_details.py before running it.
+python collect_env_details.py
 ```
 
  - PyTorch Version (e.g., 1.0):

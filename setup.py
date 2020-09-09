@@ -1,4 +1,17 @@
 #!/usr/bin/env python
+# Copyright The PyTorch Lightning team.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import os
 from io import open
@@ -12,25 +25,51 @@ except ImportError:
 
 # https://packaging.python.org/guides/single-sourcing-package-version/
 # http://blog.ionelmc.ro/2014/05/25/python-packaging/
-
 PATH_ROOT = os.path.dirname(__file__)
 builtins.__LIGHTNING_SETUP__ = True
 
 import pytorch_lightning  # noqa: E402
 
 
-def load_requirements(path_dir=PATH_ROOT, comment_char='#'):
-    with open(os.path.join(path_dir, 'requirements.txt'), 'r') as file:
+def load_requirements(path_dir=PATH_ROOT, file_name='base.txt', comment_char='#'):
+    with open(os.path.join(path_dir, 'requirements', file_name), 'r') as file:
         lines = [ln.strip() for ln in file.readlines()]
     reqs = []
     for ln in lines:
         # filer all comments
         if comment_char in ln:
-            ln = ln[:ln.index(comment_char)]
+            ln = ln[:ln.index(comment_char)].strip()
+        # skip directly installed dependencies
+        if ln.startswith('http'):
+            continue
         if ln:  # if requirement is not empty
             reqs.append(ln)
     return reqs
 
+
+def load_long_description():
+    # https://github.com/PyTorchLightning/pytorch-lightning/raw/master/docs/source/_images/lightning_module/pt_to_pl.png
+    url = os.path.join(pytorch_lightning.__homepage__, 'raw', pytorch_lightning.__version__, 'docs')
+    text = open('README.md', encoding='utf-8').read()
+    # replace relative repository path to absolute link to the release
+    text = text.replace('](docs', f']({url}')
+    # SVG images are not readable on PyPI, so replace them  with PNG
+    text = text.replace('.svg', '.png')
+    return text
+
+
+# https://setuptools.readthedocs.io/en/latest/setuptools.html#declaring-extras
+# Define package extras. These are only installed if you specify them.
+# From remote, use like `pip install pytorch-lightning[dev, docs]`
+# From local copy of repo, use like `pip install ".[dev, docs]"`
+extras = {
+    'docs': load_requirements(file_name='docs.txt'),
+    'examples': load_requirements(file_name='examples.txt'),
+    'extra': load_requirements(file_name='extra.txt'),
+    'test': load_requirements(file_name='test.txt')
+}
+extras['dev'] = extras['extra'] + extras['test']
+extras['all'] = extras['dev'] + extras['examples'] + extras['docs']
 
 # https://packaging.python.org/discussions/install-requires-vs-requirements /
 # keep the meta-data here for simplicity in reading this file... it's not obvious
@@ -44,11 +83,15 @@ setup(
     author=pytorch_lightning.__author__,
     author_email=pytorch_lightning.__author_email__,
     url=pytorch_lightning.__homepage__,
+<<<<<<< HEAD
     download_url='https://github.com/schwobr/pytorch-lightning',
+=======
+    download_url='https://github.com/PyTorchLightning/pytorch-lightning',
+>>>>>>> 656c1af0df0cd0a8102a69c9c5045e86dc2b6b3a
     license=pytorch_lightning.__license__,
-    packages=find_packages(exclude=['tests']),
+    packages=find_packages(exclude=['tests', 'tests/*', 'benchmarks']),
 
-    long_description=open('README.md', encoding='utf-8').read(),
+    long_description=load_long_description(),
     long_description_content_type='text/markdown',
     include_package_data=True,
     zip_safe=False,
@@ -56,7 +99,14 @@ setup(
     keywords=['deep learning', 'pytorch', 'AI'],
     python_requires='>=3.6',
     setup_requires=[],
-    install_requires=load_requirements(PATH_ROOT),
+    install_requires=load_requirements(),
+    extras_require=extras,
+
+    project_urls={
+        "Bug Tracker": "https://github.com/PyTorchLightning/pytorch-lightning/issues",
+        "Documentation": "https://pytorch-lightning.rtfd.io/en/latest/",
+        "Source Code": "https://github.com/PyTorchLightning/pytorch-lightning",
+    },
 
     classifiers=[
         'Environment :: Console',
@@ -77,5 +127,6 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
     ],
 )

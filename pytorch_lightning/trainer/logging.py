@@ -1,58 +1,59 @@
+# Copyright The PyTorch Lightning team.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from abc import ABC
+from typing import Union, Iterable
 
 import torch
 
 from pytorch_lightning.core import memory
+from pytorch_lightning.loggers import TensorBoardLogger, LightningLoggerBase, LoggerCollection
+from pytorch_lightning.utilities.memory import recursive_detach
 
 
 class TrainerLoggingMixin(ABC):
 
-    def __init__(self):
-        # this is just a summary on variables used in this abstract class,
-        #  the proper values/initialisation should be done in child class
-        self.current_epoch = None
-        self.on_gpu = None
-        self.log_gpu_memory = None
-        self.logger = None
-        self.tqdm_metrics = None
-        self.global_step = None
-        self.proc_rank = None
-        self.use_dp = None
-        self.use_ddp2 = None
-        self.num_gpus = None
+    # this is just a summary on variables used in this abstract class,
+    #  the proper values/initialisation should be done in child class
+    current_epoch: int
+    on_gpu: bool
+    log_gpu_memory: ...
+    logger: Union[LightningLoggerBase, bool]
+    global_step: int
+    global_rank: int
+    use_dp: bool
+    use_ddp2: bool
+    default_root_dir: str
+    slurm_job_id: int
+    num_gpus: int
+    logged_metrics: ...
 
-    def log_metrics(self, metrics, grad_norm_dic, step=None):
-        """Logs the metric dict passed in.
-
-        :param metrics:
-        :param grad_norm_dic:
-        """
-        # added metrics by Lightning for convenience
-        # metrics['epoch'] = self.current_epoch
-
-        # add gpu memory
-        if self.on_gpu and self.log_gpu_memory:
-            mem_map = memory.get_memory_profile(self.log_gpu_memory)
-            metrics.update(mem_map)
-
-        # add norms
-        metrics.update(grad_norm_dic)
-
-        # turn all tensors to scalars
-        scalar_metrics = self.metrics_to_scalars(metrics)
-
-        step = step if step is not None else self.global_step
-        # log actual metrics
-        if self.proc_rank == 0 and self.logger is not None:
-            self.logger.log_metrics(scalar_metrics, step=step, epoch=self.current_epoch)
-            self.logger.save()
-
-    def add_tqdm_metrics(self, metrics):
-        for k, v in metrics.items():
-            if type(v) is torch.Tensor:
-                v = v.item()
-
-            self.tqdm_metrics[k] = v
+    def configure_logger(self, logger):
+        if logger is True:
+            # default logger
+            self.logger = TensorBoardLogger(
+                save_dir=self.default_root_dir,
+                version=self.slurm_job_id,
+                name='lightning_logs'
+            )
+        elif logger is False:
+            self.logger = None
+        else:
+            if isinstance(logger, Iterable):
+                self.logger = LoggerCollection(logger)
+            else:
+                self.logger = logger
 
     def metrics_to_scalars(self, metrics):
         new_metrics = {}
@@ -60,7 +61,7 @@ class TrainerLoggingMixin(ABC):
             if isinstance(v, torch.Tensor):
                 v = v.item()
 
-            if type(v) is dict:
+            if isinstance(v, dict):
                 v = self.metrics_to_scalars(v)
 
             new_metrics[k] = v
@@ -70,10 +71,19 @@ class TrainerLoggingMixin(ABC):
     def process_output(self, output, train=False):
         """Reduces output according to the training mode.
 
-        Separates loss from logging and tqdm metrics
-        :param output:
-        :return:
+        Separates loss from logging and progress bar metrics
         """
+        # --------------------------
+        # handle single scalar only
+        # --------------------------
+        # single scalar returned from a xx_step
+        if isinstance(output, torch.Tensor):
+            progress_bar_metrics = {}
+            log_metrics = {}
+            callback_metrics = {}
+            hiddens = None
+            return output, progress_bar_metrics, log_metrics, callback_metrics, hiddens
+
         # ---------------
         # EXTRACT CALLBACK KEYS
         # ---------------
@@ -87,17 +97,13 @@ class TrainerLoggingMixin(ABC):
             num_gpus = self.num_gpus
             callback_metrics = self.reduce_distributed_output(callback_metrics, num_gpus)
 
-        for k, v in callback_metrics.items():
-            if isinstance(v, torch.Tensor):
-                callback_metrics[k] = v.item()
-
         # ---------------
         # EXTRACT PROGRESS BAR KEYS
         # ---------------
         try:
             progress_output = output['progress_bar']
 
-            # reduce progress metrics for tqdm when using dp
+            # reduce progress metrics for progress bar when using dp
             if train and (self.use_dp or self.use_ddp2):
                 num_gpus = self.num_gpus
                 progress_output = self.reduce_distributed_output(progress_output, num_gpus)
@@ -113,7 +119,7 @@ class TrainerLoggingMixin(ABC):
         try:
             log_output = output['log']
 
-            # reduce progress metrics for tqdm when using dp
+            # reduce progress metrics for progress bar when using dp
             if train and (self.use_dp or self.use_ddp2):
                 num_gpus = self.num_gpus
                 log_output = self.reduce_distributed_output(log_output, num_gpus)
@@ -132,7 +138,7 @@ class TrainerLoggingMixin(ABC):
             try:
                 loss = output['loss']
             except Exception:
-                if type(output) is torch.Tensor:
+                if isinstance(output, torch.Tensor):
                     loss = output
                 else:
                     raise RuntimeError(
@@ -152,10 +158,9 @@ class TrainerLoggingMixin(ABC):
         callback_metrics.update(progress_bar_metrics)
         callback_metrics.update(log_metrics)
 
-        # convert tensors to numpy
-        for k, v in callback_metrics.items():
-            if isinstance(v, torch.Tensor):
-                callback_metrics[k] = v.item()
+        # detach all metrics for callbacks to prevent memory leaks
+        # no .item() because it will slow things down
+        callback_metrics = recursive_detach(callback_metrics)
 
         return loss, progress_bar_metrics, log_metrics, callback_metrics, hiddens
 
@@ -165,7 +170,7 @@ class TrainerLoggingMixin(ABC):
 
         # when using DP, we get one output per gpu
         # average outputs and return
-        if type(output) is torch.Tensor:
+        if isinstance(output, torch.Tensor):
             return output.mean()
 
         for k, v in output.items():
@@ -173,12 +178,16 @@ class TrainerLoggingMixin(ABC):
             if isinstance(output[k], dict):
                 output[k] = self.reduce_distributed_output(output[k], num_gpus)
 
+            # compute the average of scalars
+            elif isinstance(output[k], list):
+                output[k] = sum(output[k]) / len(output[k])
+
             # do nothing when there's a scalar
             elif isinstance(output[k], torch.Tensor) and output[k].dim() == 0:
                 pass
 
-            # reduce only metrics that have the same number of gpus
-            elif output[k].size(0) == num_gpus:
-                reduced = torch.mean(output[k])
-                output[k] = reduced
+            # do not reduce metrics that have batch size > num gpus
+            elif output[k].size(0) <= num_gpus:
+                output[k] = torch.mean(output[k])
+
         return output

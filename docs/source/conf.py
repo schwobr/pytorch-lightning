@@ -21,12 +21,15 @@ import inspect
 # import m2r
 import builtins
 import pt_lightning_sphinx_theme
+from sphinx.ext import apidoc
 
 PATH_HERE = os.path.abspath(os.path.dirname(__file__))
 PATH_ROOT = os.path.join(PATH_HERE, '..', '..')
 sys.path.insert(0, os.path.abspath(PATH_ROOT))
 
 builtins.__LIGHTNING_SETUP__ = True
+
+SPHINX_MOCK_REQUIREMENTS = int(os.environ.get('SPHINX_MOCK_REQUIREMENTS', True))
 
 import pytorch_lightning  # noqa: E402
 
@@ -62,18 +65,23 @@ version = pytorch_lightning.__version__
 # The full version, including alpha/beta/rc tags
 release = pytorch_lightning.__version__
 
+# Options for the linkcode extension
+# ----------------------------------
+github_user = 'PyTorchLightning'
+github_repo = project
+
 # -- General configuration ---------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
 
-needs_sphinx = '1.4'
+needs_sphinx = '2.0'
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinxcontrib.mockautodoc',
+    # 'sphinxcontrib.mockautodoc',  # raises error: directive 'automodule' is already registered ...
     # 'sphinxcontrib.fulltoc',  # breaks pytorch-theme with unexpected kw argument 'titles_only'
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
@@ -82,9 +90,15 @@ extensions = [
     'sphinx.ext.linkcode',
     'sphinx.ext.autosummary',
     'sphinx.ext.napoleon',
+    'sphinx.ext.imgmath',
     'recommonmark',
+    'sphinx.ext.autosectionlabel',
     # 'm2r',
     'nbsphinx',
+    'sphinx_autodoc_typehints',
+    'sphinx_copybutton',
+    'sphinx_paramlinks',
+    'sphinx_togglebutton',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -96,6 +110,7 @@ templates_path = ['_templates']
 # they should be run at build time.
 nbsphinx_execute = 'never'
 nbsphinx_allow_errors = True
+nbsphinx_requirejs_path = ''
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -122,7 +137,13 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['*.test_*']
+exclude_patterns = [
+    'api/pytorch_lightning.rst',
+    'api/pl_examples.*',
+    'api/pytorch_lightning.accelerators.*',
+    'api/modules.rst',
+    'PULL_REQUEST_TEMPLATE.md',
+]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
@@ -149,12 +170,12 @@ html_theme_options = {
     'logo_only': False,
 }
 
-html_logo = '_static/images/lightning_logo_small.png'
+html_logo = '_images/logos/lightning_logo-name.svg'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = ['_images', '_templates', '_static']
 
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
@@ -234,43 +255,51 @@ epub_exclude_files = ['search.html']
 
 # -- Options for intersphinx extension ---------------------------------------
 
-# Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {'https://docs.python.org/': None}
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'torch': ('https://pytorch.org/docs/stable/', None),
+    'numpy': ('https://docs.scipy.org/doc/numpy/', None),
+    'PIL': ('https://pillow.readthedocs.io/en/stable/', None),
+}
 
 # -- Options for todo extension ----------------------------------------------
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = True
 
-# https://github.com/rtfd/readthedocs.org/issues/1139
-# I use sphinx-apidoc to auto-generate API documentation for my project.
-# Right now I have to commit these auto-generated files to my repository
-# so that RTD can build them into HTML docs. It'd be cool if RTD could run
-# sphinx-apidoc for me, since it's easy to forget to regen API docs
-# and commit them to my repo after making changes to my code.
 
+# packages for which sphinx-apidoc should generate the docs (.rst files)
 PACKAGES = [
     pytorch_lightning.__name__,
     'pl_examples',
 ]
 
+apidoc_output_folder = os.path.join(PATH_HERE, 'api')
+
 
 def run_apidoc(_):
+    sys.path.insert(0, apidoc_output_folder)
+
+    # delete api-doc files before generating them
+    if os.path.exists(apidoc_output_folder):
+        shutil.rmtree(apidoc_output_folder)
+
     for pkg in PACKAGES:
-        argv = ['-e', '-o', PATH_HERE, os.path.join(PATH_HERE, PATH_ROOT, pkg),
-                '**/test_*', '--force', '--private', '--module-first']
-        try:
-            # Sphinx 1.7+
-            from sphinx.ext import apidoc
-            apidoc.main(argv)
-        except ImportError:
-            # Sphinx 1.6 (and earlier)
-            from sphinx import apidoc
-            argv.insert(0, apidoc.__file__)
-            apidoc.main(argv)
+        argv = ['-e',
+                '-o', apidoc_output_folder,
+                os.path.join(PATH_ROOT, pkg),
+                '**/test_*',
+                '--force',
+                '--private',
+                '--module-first']
+
+        apidoc.main(argv)
 
 
 def setup(app):
+    # this is for hiding doctest decoration,
+    # see: http://z4r.github.io/python/2011/12/02/hides-the-prompts-and-output/
+    app.add_javascript('copybutton.js')
     app.connect('builder-inited', run_apidoc)
 
 
@@ -282,28 +311,35 @@ for path_ipynb in glob.glob(os.path.join(PATH_ROOT, 'notebooks', '*.ipynb')):
     path_ipynb2 = os.path.join(path_nbs, os.path.basename(path_ipynb))
     shutil.copy(path_ipynb, path_ipynb2)
 
+
 # Ignoring Third-party packages
 # https://stackoverflow.com/questions/15889621/sphinx-how-to-exclude-imports-in-automodule
-
-MOCK_REQUIRE_PACKAGES = []
-with open(os.path.join(PATH_ROOT, 'requirements.txt'), 'r') as fp:
-    for ln in fp.readlines():
-        found = [ln.index(ch) for ch in list(',=<>#') if ch in ln]
-        pkg = ln[:min(found)] if found else ln
-        if pkg.rstrip():
-            MOCK_REQUIRE_PACKAGES.append(pkg.rstrip())
-
-# TODO: better parse from package since the import name and package name may differ
-MOCK_MANUAL_PACKAGES = ['torch', 'torchvision', 'sklearn', 'test_tube', 'mlflow', 'comet_ml', 'wandb', 'neptune']
-autodoc_mock_imports = MOCK_REQUIRE_PACKAGES + MOCK_MANUAL_PACKAGES
-# for mod_name in MOCK_REQUIRE_PACKAGES:
-#     sys.modules[mod_name] = mock.Mock()
+def package_list_from_file(file):
+    mocked_packages = []
+    with open(file, 'r') as fp:
+        for ln in fp.readlines():
+            found = [ln.index(ch) for ch in list(',=<>#') if ch in ln]
+            pkg = ln[:min(found)] if found else ln
+            if pkg.rstrip():
+                mocked_packages.append(pkg.rstrip())
+    return mocked_packages
 
 
-# Options for the linkcode extension
-# ----------------------------------
-github_user = 'williamFalcon'
-github_repo = project
+MOCK_PACKAGES = []
+if SPHINX_MOCK_REQUIREMENTS:
+    # mock also base packages when we are on RTD since we don't install them there
+    MOCK_PACKAGES += package_list_from_file(os.path.join(PATH_ROOT, 'requirements/base.txt'))
+    MOCK_PACKAGES += package_list_from_file(os.path.join(PATH_ROOT, 'requirements/extra.txt'))
+
+MOCK_MANUAL_PACKAGES = [
+    'torchvision',
+    'PIL',
+    # packages with different package name compare to import name
+    'yaml',
+    'comet_ml',
+    'neptune',
+]
+autodoc_mock_imports = MOCK_PACKAGES + MOCK_MANUAL_PACKAGES
 
 
 # Resolve function
@@ -317,7 +353,7 @@ def linkcode_resolve(domain, info):
             obj = getattr(obj, part)
         fname = inspect.getsourcefile(obj)
         # https://github.com/rtfd/readthedocs.org/issues/5735
-        if any([s in fname for s in ('readthedocs', 'checkouts')]):
+        if any([s in fname for s in ('readthedocs', 'rtfd', 'checkouts')]):
             # /home/docs/checkouts/readthedocs.org/user_builds/pytorch_lightning/checkouts/
             #  devel/pytorch_lightning/utilities/cls_experiment.py#L26-L176
             path_top = os.path.abspath(os.path.join('..', '..', '..'))
@@ -337,13 +373,55 @@ def linkcode_resolve(domain, info):
     # import subprocess
     # tag = subprocess.Popen(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE,
     #                        universal_newlines=True).communicate()[0][:-1]
+    branch = filename.split('/')[0]
+    # do mapping from latest tags to master
+    branch = {'latest': 'master', 'stable': 'master'}.get(branch, branch)
+    filename = '/'.join([branch] + filename.split('/')[1:])
     return "https://github.com/%s/%s/blob/%s" \
            % (github_user, github_repo, filename)
 
 
 autodoc_member_order = 'groupwise'
 autoclass_content = 'both'
-autodoc_default_flags = [
-    'members', 'undoc-members', 'show-inheritance', 'private-members',
-    # 'special-members', 'inherited-members'
-]
+# the options are fixed and will be soon in release,
+#  see https://github.com/sphinx-doc/sphinx/issues/5459
+autodoc_default_options = {
+    'members': None,
+    'methods': None,
+    # 'attributes': None,
+    'special-members': '__call__',
+    'exclude-members': '_abc_impl',
+    'show-inheritance': True,
+    'private-members': True,
+    'noindex': True,
+}
+
+# Sphinx will add “permalinks” for each heading and description environment as paragraph signs that
+#  become visible when the mouse hovers over them.
+# This value determines the text for the permalink; it defaults to "¶". Set it to None or the empty
+#  string to disable permalinks.
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-html_add_permalinks
+html_add_permalinks = "¶"
+
+# True to prefix each section label with the name of the document it is in, followed by a colon.
+#  For example, index:Introduction for a section called Introduction that appears in document index.rst.
+#  Useful for avoiding ambiguity when the same section heading appears in different documents.
+# http://www.sphinx-doc.org/en/master/usage/extensions/autosectionlabel.html
+autosectionlabel_prefix_document = True
+
+# only run doctests marked with a ".. doctest::" directive
+doctest_test_doctest_blocks = ''
+doctest_global_setup = """
+
+import importlib
+import os
+import torch
+
+from pytorch_lightning.utilities import NATIVE_AMP_AVALAIBLE
+APEX_AVAILABLE = importlib.util.find_spec("apex") is not None
+XLA_AVAILABLE = importlib.util.find_spec("torch_xla") is not None
+TORCHVISION_AVAILABLE = importlib.util.find_spec("torchvision") is not None
+
+
+"""
+coverage_skip_undoc_in_source = True

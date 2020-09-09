@@ -3,13 +3,13 @@ Template model definition
 -------------------------
 
 In 99% of cases you want to just copy `one of the examples
- <https://github.com/williamFalcon/pytorch-lightning/tree/master/pl_examples>`_
- to start a new lightningModule and change the core of what your model is actually trying to do.
+<https://github.com/PyTorchLightning/pytorch-lightning/tree/master/pl_examples>`_
+to start a new lightningModule and change the core of what your model is actually trying to do.
 
 .. code-block:: bash
 
     # get a copy of the module template
-    wget https://raw.githubusercontent.com/williamFalcon/pytorch-lightning/master/pl_examples/new_project_templates/lightning_module_template.py  # noqa: E501
+    wget https://raw.githubusercontent.com/PyTorchLightning/pytorch-lightning/master/pl_examples/new_project_templates/lightning_module_template.py  # noqa: E501
 
 
 Trainer Example
@@ -43,6 +43,7 @@ Normally, we want to let the `__main__` function start the training.
 
 The main function is your entry into the program. This is where you init your model, checkpoint directory,
  and launch the training. The main function should have 3 arguments:
+
 - hparams: a configuration of hyperparameters.
 - slurm_manager: Slurm cluster manager object (can be None)
 - dict: for you to return any values you want (useful in meta-learning, otherwise set to)
@@ -139,7 +140,7 @@ Hyperparameter search on a SLURM HPC cluster
 
 """
 
-from .basic_examples.lightning_module_template import LightningTemplateModel
+from pl_examples.models.lightning_template import LightningTemplateModel
 
 __all__ = [
     'LightningTemplateModel'
